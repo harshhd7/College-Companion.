@@ -1,0 +1,6 @@
+{
+  "name": "College Companion",
+  "description": "Student and campus portal for college schedules, events, notes, placements, and peer groups.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
