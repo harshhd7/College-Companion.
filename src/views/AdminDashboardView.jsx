@@ -17,6 +17,8 @@ import {
   RefreshCw,
   FolderPlus,
   HelpCircle,
+  FileCheck,
+  Camera,
 } from "lucide-react";
 import {
   adminService,
@@ -29,6 +31,8 @@ import {
   opportunitiesService,
   communicationService,
 } from "../lib/dataService";
+import OfficialImportManager from "../components/OfficialImportManager";
+import LostFoundAdminModeration from "../components/LostFoundAdminModeration";
 
 export default function AdminDashboardView({ user, showToast }) {
   const [activeTab, setActiveTab] = useState("overview"); // 'overview' | 'timetable' | 'exams' | 'notes' | 'announcements' | 'users'
@@ -336,6 +340,8 @@ export default function AdminDashboardView({ user, showToast }) {
       <div className="bg-white p-2 rounded-2xl border border-stone-200 shadow-xs flex items-center gap-1 overflow-x-auto">
         {[
           { key: "overview", label: "Overview & Instructions", icon: ShieldCheck },
+          { key: "official_import", label: "Official Document Ingestion & Audit", icon: FileCheck, highlight: true },
+          { key: "lost_found", label: "Lost & Found Moderation", icon: Camera },
           { key: "timetable", label: `Timetable (${timetableEntries.length})`, icon: Calendar },
           { key: "exams", label: `Exams (${exams.length})`, icon: Clock },
           { key: "announcements", label: `Announcements (${announcements.length})`, icon: Bell },
@@ -350,17 +356,32 @@ export default function AdminDashboardView({ user, showToast }) {
               className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${
                 isActive
                   ? "bg-emerald-900 text-white shadow-xs"
+                  : tab.highlight
+                  ? "text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-bold"
                   : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
               }`}
             >
-              <Icon size={14} />
+              <Icon size={14} className={tab.highlight && !isActive ? "text-emerald-700" : ""} />
               <span>{tab.label}</span>
+              {tab.highlight && !isActive && (
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              )}
             </button>
           );
         })}
       </div>
 
       {/* 4. Tab Content */}
+      {/* 4.0 OFFICIAL DOCUMENT AUDIT & INGESTION TAB */}
+      {activeTab === "official_import" && (
+        <OfficialImportManager showToast={showToast} />
+      )}
+
+      {/* 4.0B LOST & FOUND MODERATION TAB */}
+      {activeTab === "lost_found" && (
+        <LostFoundAdminModeration showToast={showToast} />
+      )}
+
       {/* 4.1 OVERVIEW */}
       {activeTab === "overview" && (
         <div className="space-y-6">

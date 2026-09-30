@@ -164,18 +164,39 @@ create table if not exists public.opportunities (
   updated_at timestamptz not null default now()
 );
 
--- 3.4 Campus Lost and Found Board
+-- 3.4 Campus Lost and Found Board (Updated with Multi-Photo & Location Hierarchy Support)
 create table if not exists public.lost_and_found (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   type text not null check (type in ('Lost', 'Found')),
-  location text not null,
-  item_date date not null default current_date,
-  contact text not null,
-  status text not null default 'Open' check (status in ('Open', 'Claimed', 'Handed to Security')),
   category text not null default 'Personal',
-  image_url text,
-  reporter_id uuid not null references public.profiles(id) on delete cascade,
+  item_date date not null default current_date,
+  
+  -- Location Hierarchy
+  department text not null default 'Information Technology',
+  branch text default 'Information Technology',
+  building text not null default 'Main Building',
+  floor_number text default '3rd Floor',
+  room_number text,
+  lab_name text,
+  location_description text,
+  location text not null, -- Composite formatted string for backward compatibility
+  
+  -- Contact & Notes
+  contact text not null,
+  contact_method text default 'Email / Phone',
+  additional_note text,
+  
+  -- Real Photographs (Supabase Storage: bucket 'lost-found')
+  primary_image_url text,
+  additional_image_urls text[] default '{}',
+  image_count integer not null default 0,
+  
+  -- Status & Moderation
+  status text not null default 'Open' check (status in ('Open', 'Claimed', 'Handed to Security', 'Resolved')),
+  moderation_status text not null default 'Approved' check (moderation_status in ('Pending', 'Approved', 'Rejected', 'Claimed', 'Resolved')),
+  
+  reporter_id uuid references public.profiles(id) on delete set null,
   reporter_name text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -439,11 +460,15 @@ create policy "events_admin_all" on public.events for all to authenticated using
 create policy "opportunities_read" on public.opportunities for select using (true);
 create policy "opportunities_admin_all" on public.opportunities for all to authenticated using (public.is_admin());
 
--- 5.7 Lost & Found Policies
-create policy "lost_found_read" on public.lost_and_found for select using (true);
-create policy "lost_found_insert" on public.lost_and_found for insert to authenticated with check (auth.uid() = reporter_id);
-create policy "lost_found_update" on public.lost_and_found for update to authenticated using (auth.uid() = reporter_id or public.is_admin());
-create policy "lost_found_delete" on public.lost_and_found for delete to authenticated using (auth.uid() = reporter_id or public.is_admin());
+-- 5.7 Lost & Found Policies (Approved reports public; Students manage own; Admins manage all)
+create policy "lost_found_read" on public.lost_and_found for select 
+  using (moderation_status = 'Approved' or auth.uid() = reporter_id or public.is_admin());
+create policy "lost_found_insert" on public.lost_and_found for insert to authenticated 
+  with check (auth.uid() = reporter_id or public.is_admin());
+create policy "lost_found_update" on public.lost_and_found for update to authenticated 
+  using (auth.uid() = reporter_id or public.is_admin());
+create policy "lost_found_delete" on public.lost_and_found for delete to authenticated 
+  using (auth.uid() = reporter_id or public.is_admin());
 
 -- 5.8 Study Groups & Members
 create policy "study_groups_read" on public.study_groups for select using (true);
@@ -505,3 +530,19 @@ create policy "storage_public_read" on storage.objects for select
 
 create policy "storage_auth_upload" on storage.objects for insert to authenticated 
   with check (bucket_id in ('notes', 'lost-found', 'avatars', 'event-images', 'club-images'));
+
+-- 6.1 Dedicated 'lost-found' Bucket Policies
+-- Path structure: lost-found/{user_id}/{item_id}/{filename}
+-- Students can upload photographs for their own reports; cannot delete another user's photos
+create policy "storage_lost_found_user_upload" on storage.objects for insert to authenticated 
+  with check (
+    bucket_id = 'lost-found' and 
+    (auth.uid()::text = (storage.foldername(name))[1] or public.is_admin())
+  );
+
+create policy "storage_lost_found_user_delete" on storage.objects for delete to authenticated 
+  using (
+    bucket_id = 'lost-found' and 
+    (auth.uid()::text = (storage.foldername(name))[1] or public.is_admin())
+  );
+

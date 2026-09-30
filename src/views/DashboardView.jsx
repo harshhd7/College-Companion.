@@ -38,6 +38,8 @@ import {
   opportunitiesService,
   communicationService,
 } from "../lib/dataService";
+import DashboardSummaryGrid from "../components/DashboardSummaryGrid";
+import OfficialDocumentsModal from "../components/OfficialDocumentsModal";
 
 export default function DashboardView({ user, onNavigate, onOpenSearch, showToast }) {
   const [announcements, setAnnouncements] = useState(campusAnnouncements);
@@ -46,6 +48,7 @@ export default function DashboardView({ user, onNavigate, onOpenSearch, showToas
   const [liveEvents, setLiveEvents] = useState(upcomingEvents);
   const [livePlacements, setLivePlacements] = useState(placementForms);
   const [loading, setLoading] = useState(false);
+  const [officialDocsModalOpen, setOfficialDocsModalOpen] = useState(false);
 
   const todayName = days[todayIndex];
 
@@ -270,8 +273,28 @@ export default function DashboardView({ user, onNavigate, onOpenSearch, showToas
         </div>
       )}
 
-      {/* 3. Quick Actions Toolbar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+      {/* 3. Main Dashboard Component: Summary Cards for Upcoming Classes and Recent Events (Grid Layout) */}
+      <DashboardSummaryGrid
+        todayClasses={todayClasses}
+        activeClass={activeClass}
+        todayName={todayName}
+        upcomingEvents={liveEvents}
+        onNavigate={onNavigate}
+        onOpenOfficialDocs={() => setOfficialDocsModalOpen(true)}
+        showToast={showToast}
+      />
+
+      {/* 4. Quick Actions Toolbar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+        <button
+          onClick={() => setOfficialDocsModalOpen(true)}
+          className="p-3 bg-white hover:bg-emerald-50/60 border border-emerald-300 rounded-2xl text-left transition-all group shadow-2xs ring-1 ring-emerald-200/70"
+        >
+          <FileText size={18} className="text-emerald-800 mb-1.5 group-hover:scale-110 transition-transform" />
+          <p className="text-xs font-bold text-stone-900">Project & Review 2</p>
+          <p className="text-[10px] text-emerald-800 font-semibold">Official groups</p>
+        </button>
+
         <button
           onClick={() => onNavigate("timetable")}
           className="p-3 bg-white hover:bg-emerald-50/50 border border-stone-200 rounded-2xl text-left transition-all group shadow-2xs"
@@ -614,6 +637,12 @@ export default function DashboardView({ user, onNavigate, onOpenSearch, showToas
           </div>
         </div>
       </div>
+
+      {/* Official Documents Modal */}
+      <OfficialDocumentsModal
+        isOpen={officialDocsModalOpen}
+        onClose={() => setOfficialDocsModalOpen(false)}
+      />
     </div>
   );
 }

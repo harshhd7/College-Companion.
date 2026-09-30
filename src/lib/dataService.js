@@ -11,6 +11,13 @@ import {
   campusAnnouncements as mockAnnouncements,
   notificationsList as mockNotifications,
 } from "../data/mockData";
+import {
+  authoritativeSourceFiles,
+  officialProjectGroups,
+  officialReviewSchedule,
+  officialAdmissionGuidelines,
+  ambiguousReviewRecords,
+} from "../data/officialSourceData";
 
 // ==========================================
 // 1. TIMETABLE SERVICE
@@ -426,41 +433,162 @@ export const opportunitiesService = {
 };
 
 // ==========================================
-// 8. LOST & FOUND SERVICE
+// 8. LOST & FOUND SERVICE (Supports Real Photos & Supabase Storage)
 // ==========================================
 export const lostFoundService = {
-  async getItems() {
-    if (!supabase) return { data: mockLostFound, fallback: true };
+  async getItems({ userId = null, isAdmin = false, moderationStatus = null } = {}) {
+    if (!supabase) {
+      let filtered = [...mockLostFound];
+      if (!isAdmin) {
+        filtered = filtered.filter(
+          (i) => i.moderation_status === "Approved" || (userId && i.reporter_id === userId)
+        );
+      } else if (moderationStatus) {
+        filtered = filtered.filter((i) => i.moderation_status === moderationStatus);
+      }
+      return { data: filtered, fallback: true };
+    }
+
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("lost_and_found")
         .select("*")
         .order("created_at", { ascending: false });
+
+      if (!isAdmin) {
+        // Students only see Approved items or their own pending reports
+        if (userId) {
+          query = query.or(`moderation_status.eq.Approved,reporter_id.eq.${userId}`);
+        } else {
+          query = query.eq("moderation_status", "Approved");
+        }
+      } else if (moderationStatus) {
+        query = query.eq("moderation_status", moderationStatus);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      if (!data || data.length === 0) return { data: mockLostFound, fallback: true };
+      if (!data || data.length === 0) {
+        let filteredMock = [...mockLostFound];
+        if (!isAdmin) {
+          filteredMock = filteredMock.filter((i) => i.moderation_status === "Approved");
+        }
+        return { data: filteredMock, fallback: true };
+      }
       return { data, fallback: false };
     } catch (err) {
-      console.warn("lostFoundService.getItems error:", err);
-      return { data: mockLostFound, fallback: true };
+      console.warn("lostFoundService.getItems error, using mock data:", err);
+      let filteredMock = [...mockLostFound];
+      if (!isAdmin) {
+        filteredMock = filteredMock.filter((i) => i.moderation_status === "Approved");
+      }
+      return { data: filteredMock, fallback: true };
     }
   },
 
   async createItem(item) {
-    if (!supabase) throw new Error("Supabase is not configured.");
-    const { data, error } = await supabase.from("lost_and_found").insert([item]).select().single();
+    const formattedItem = {
+      ...item,
+      image_count: item.primary_image_url
+        ? 1 + (item.additional_image_urls?.length || 0)
+        : 0,
+      moderation_status: item.moderation_status || "Approved", // Approved by default or Pending if strict
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!supabase) {
+      const fallbackItem = {
+        id: `lf-${Date.now()}`,
+        ...formattedItem,
+        item_date: formattedItem.item_date || new Date().toISOString().split("T")[0],
+        date: "Today",
+      };
+      mockLostFound.unshift(fallbackItem);
+      return fallbackItem;
+    }
+
+    const { data, error } = await supabase
+      .from("lost_and_found")
+      .insert([formattedItem])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async updateItem(id, updates) {
+    if (!supabase) {
+      const idx = mockLostFound.findIndex((i) => i.id === id);
+      if (idx !== -1) {
+        mockLostFound[idx] = { ...mockLostFound[idx], ...updates, updated_at: new Date().toISOString() };
+        return mockLostFound[idx];
+      }
+      return { id, ...updates };
+    }
+
+    const { data, error } = await supabase
+      .from("lost_and_found")
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
     if (error) throw error;
     return data;
   },
 
   async updateItemStatus(id, status) {
-    if (!supabase) throw new Error("Supabase is not configured.");
-    const { data, error } = await supabase.from("lost_and_found").update({ status, updated_at: new Date().toISOString() }).eq("id", id).select().single();
-    if (error) throw error;
-    return data;
+    return this.updateItem(id, { status });
+  },
+
+  async approveItem(id) {
+    return this.updateItem(id, { moderation_status: "Approved" });
+  },
+
+  async rejectItem(id, reason = "") {
+    return this.updateItem(id, {
+      moderation_status: "Rejected",
+      additional_note: reason ? `Rejected reason: ${reason}` : undefined,
+    });
+  },
+
+  async markClaimed(id) {
+    return this.updateItem(id, { status: "Claimed", moderation_status: "Claimed" });
+  },
+
+  async markResolved(id) {
+    return this.updateItem(id, { status: "Resolved", moderation_status: "Resolved" });
+  },
+
+  async removeImageFromItem(id, imageUrlToRemove) {
+    const res = await this.getItems({ isAdmin: true });
+    const item = res.data?.find((i) => i.id === id);
+    if (!item) return null;
+
+    let newPrimary = item.primary_image_url;
+    let newAdditionals = [...(item.additional_image_urls || [])];
+
+    if (newPrimary === imageUrlToRemove) {
+      // Elevate first additional to primary if available
+      newPrimary = newAdditionals.length > 0 ? newAdditionals.shift() : null;
+    } else {
+      newAdditionals = newAdditionals.filter((url) => url !== imageUrlToRemove);
+    }
+
+    const newCount = newPrimary ? 1 + newAdditionals.length : 0;
+    return this.updateItem(id, {
+      primary_image_url: newPrimary,
+      additional_image_urls: newAdditionals,
+      image_count: newCount,
+    });
   },
 
   async deleteItem(id) {
-    if (!supabase) throw new Error("Supabase is not configured.");
+    if (!supabase) {
+      const idx = mockLostFound.findIndex((i) => i.id === id);
+      if (idx !== -1) mockLostFound.splice(idx, 1);
+      return true;
+    }
     const { error } = await supabase.from("lost_and_found").delete().eq("id", id);
     if (error) throw error;
     return true;
@@ -730,5 +858,30 @@ export const adminService = {
       .single();
     if (error) throw error;
     return data;
+  },
+};
+
+// ==========================================
+// 13. OFFICIAL DOCUMENTS & AUDIT SERVICE
+// ==========================================
+export const officialDocumentsService = {
+  getAuthoritativeFiles() {
+    return authoritativeSourceFiles;
+  },
+
+  getProjectGroups() {
+    return officialProjectGroups;
+  },
+
+  getReviewSchedule() {
+    return officialReviewSchedule;
+  },
+
+  getAdmissionGuidelines() {
+    return officialAdmissionGuidelines;
+  },
+
+  getAmbiguousRecords() {
+    return ambiguousReviewRecords;
   },
 };
